@@ -1,60 +1,53 @@
+from fastapi import FastAPI, Form, File, HTTPException
+from typing import Optional
 import google.generativeai as genai
-from fastapi import FastAPI, Form, File, UploadFile
 import os
-import zipfile
-import ujson
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
 app = FastAPI()
-
-# Configure API key
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+load_dotenv()
+GOOGLE_API_KEY=os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# Helper function to extract data from CSV using ujson
-def extract_csv_data(zip_file_path):
+async def save_upload_file_temporarily(upload_file):
     try:
-        extract_folder = '/tmp/extracted_files'
-        os.makedirs(extract_folder, exist_ok=True)
-        
-        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_folder)
-            for file_name in zip_ref.namelist():
-                if file_name.endswith(".csv"):
-                    file_path = os.path.join(extract_folder, file_name)
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        headers = f.readline().strip().split(',')
-                        if 'answer' in headers:
-                            answer_index = headers.index('answer')
-                            first_row = f.readline().strip().split(',')
-                            return str(first_row[answer_index])
-        return "No answer column found."
+        temp_file_path = f"/tmp/{upload_file.filename}"
+        with open(temp_file_path, "wb") as buffer:
+            buffer.write(await upload_file.read())
+        return temp_file_path
     except Exception as e:
-        return str(e)
+        print(f"Error saving file: {e}")
+        raise HTTPException(status_code=500, detail="File could not be saved.")
 
-# API Endpoint
+async def get_gemini_response(prompt, file_path = None):
+    try:
+        if file_path:
+            with open(file_path, "rb") as f:
+                response = genai.chat(messages=[prompt], files=[f])
+        else:
+            response = genai.chat(messages=[prompt])
+        return response.text
+    except Exception as e:
+        print(f"Error in get_gemini_response: {e}")
+        raise HTTPException(status_code=500, detail="Error getting response from Gemini.")
+
 @app.post("/api/")
-async def solve_question(
-    question: str = Form(...), 
-    file: UploadFile = File(None)
+async def process_question(
+    question = Form(...),
+    file = File(None)
 ):
     try:
-        # If file is provided, extract and find answer
+        print(f"Received prompt: {question}")
+        
+        temp_file_path = None
         if file:
-            file_location = f"/tmp/{file.filename}"
-            with open(file_location, "wb") as f:
-                f.write(await file.read())
-            answer = extract_csv_data(file_location)
-            return {"answer": answer}
+            print(f"File received: {file.filename}")
+            temp_file_path = await save_upload_file_temporarily(file)
+            print(f"File saved temporarily at: {temp_file_path}")
 
-        # If no file is provided, use Gemini AI for response
-        model_name = "gemini-1.5-pro-latest"
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(question)
-        return {"answer": response.text}
-
+        answer = await get_gemini_response(question, temp_file_path)
+        print(f"Generated answer: {answer}")
+        return {"answer": answer}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"Error in process_question: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
