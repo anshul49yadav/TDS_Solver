@@ -2,7 +2,7 @@ import google.generativeai as genai
 from fastapi import FastAPI, Form, File, UploadFile
 import os
 import zipfile
-import pandas as pd
+import ujson
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -14,16 +14,20 @@ app = FastAPI()
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# Helper function to extract data from CSV
+# Helper function to extract data from CSV using ujson
 def extract_csv_data(zip_file_path):
     try:
         with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
             zip_ref.extractall("temp_folder")
             for file_name in zip_ref.namelist():
                 if file_name.endswith(".csv"):
-                    df = pd.read_csv(f"temp_folder/{file_name}")
-                    if 'answer' in df.columns:
-                        return str(df['answer'].iloc[0])
+                    with open(f"temp_folder/{file_name}", 'r', encoding='utf-8') as f:
+                        headers = f.readline().strip().split(',')
+                        if 'answer' in headers:
+                            answer_index = headers.index('answer')
+                            # Read the first row
+                            first_row = f.readline().strip().split(',')
+                            return str(first_row[answer_index])
         return "No answer column found."
     except Exception as e:
         return str(e)
@@ -38,6 +42,7 @@ async def solve_question(
         # If file is provided, extract and find answer
         if file:
             file_location = f"temp_folder/{file.filename}"
+            os.makedirs("temp_folder", exist_ok=True)
             with open(file_location, "wb") as f:
                 f.write(await file.read())
             answer = extract_csv_data(file_location)
