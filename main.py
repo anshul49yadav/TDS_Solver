@@ -3,12 +3,28 @@ from typing import Optional
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+import zipfile
 
 app = FastAPI()
 load_dotenv()
 GOOGLE_API_KEY=os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
+async def extract_files_from_zip(zip_path):
+    try:
+        extracted_files = []
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall("/tmp/extracted")
+            for file_name in zip_ref.namelist():
+                file_path = f"/tmp/extracted/{file_name}"
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    extracted_files.append((file_name, content))
+        return extracted_files
+    except Exception as e:
+        print(f"Error extracting files from zip: {e}")
+        raise HTTPException(status_code=500, detail="Error extracting files from zip.")
+    
 async def save_upload_file_temporarily(upload_file):
     try:
         temp_file_path = f"/tmp/{upload_file.filename}"
@@ -19,16 +35,18 @@ async def save_upload_file_temporarily(upload_file):
         print(f"Error saving file: {e}")
         raise HTTPException(status_code=500, detail="File could not be saved.")
 
+
 async def get_gemini_response(prompt: str, file_path: Optional[str] = None) -> str:
     try:
         model = genai.GenerativeModel("gemini-1.5-pro-latest")
-
+        
         if file_path:
-            with open(file_path, "rb") as f:
-                response = model.generate_content([prompt, f.read()])
+            extracted_files = await extract_files_from_zip(file_path)
+            content_prompt = f"{prompt}\n\n" + "\n\n".join([f"{name}:\n{content}" for name, content in extracted_files])
+            response = model.generate_content(content_prompt)
         else:
-            response = model.generate_content([prompt])
-
+            response = model.generate_content(prompt)
+        
         print(f"Generated answer from Gemini: {response.text}")
         return response.text
     except Exception as e:
