@@ -19,13 +19,17 @@ async def save_upload_file_temporarily(upload_file):
         print(f"Error saving file: {e}")
         raise HTTPException(status_code=500, detail="File could not be saved.")
 
-async def get_gemini_response(prompt, file_path = None):
+async def get_gemini_response(prompt: str, file_path: Optional[str] = None) -> str:
     try:
+        model = genai.GenerativeModel("gemini-pro")
+
         if file_path:
             with open(file_path, "rb") as f:
-                response = genai.chat(messages=[prompt], files=[f])
+                response = model.generate_content([prompt, f.read()])
         else:
-            response = genai.chat(messages=[prompt])
+            response = model.generate_content([prompt])
+
+        print(f"Generated answer from Gemini: {response.text}")
         return response.text
     except Exception as e:
         print(f"Error in get_gemini_response: {e}")
