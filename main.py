@@ -21,7 +21,7 @@ async def save_upload_file_temporarily(upload_file):
 
 async def get_gemini_response(prompt: str, file_path: Optional[str] = None) -> str:
     try:
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-1.5-pro-latest")
 
         if file_path:
             with open(file_path, "rb") as f:
