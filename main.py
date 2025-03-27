@@ -42,7 +42,7 @@ async def get_gemini_response(prompt: str, file_path: Optional[str] = None) -> s
         
         if file_path:
             extracted_files = await extract_files_from_zip(file_path)
-            content_prompt = f"Just return the answer asked for and do not write anything unecessary code or program: {prompt}\n\n" + "\n\n".join([f"{name}:\n{content}" for name, content in extracted_files])
+            content_prompt = f"Please provide only the answer to the following question without any code, explanations, or extra commentary: {prompt}\n\n" + "Attached are file contents for reference:" "\n\n".join([f"{name}:\n{content}" for name, content in extracted_files])
             response = model.generate_content(content_prompt)
         else:
             response = model.generate_content(prompt)
