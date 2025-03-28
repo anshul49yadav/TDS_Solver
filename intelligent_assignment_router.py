@@ -42,6 +42,10 @@ class IntelligentAssignmentRouter:
             Dict containing processed answer
         """
         try:
+            """
+            - CLI_COMMAND_SIMULATION: Questions about simulating CLI command outputs
+            - FILE_MOVE_RENAME_HASH: Specific task of moving files from subdirectories and renaming digits
+            """
             # Use Gemini to classify the question
             classification_prompt = f"""
             Carefully analyze the following question and classify its type 
@@ -60,8 +64,6 @@ class IntelligentAssignmentRouter:
             - GENERAL_PROCESSING: Questions that require general text or file analysis
             - UNKNOWN: Cannot determine the specific processing type
             - DATE_RANGE_CALCULATION: Questions about counting days in a specific date range
-            # - FILE_MOVE_RENAME_HASH: Specific task of moving files from subdirectories and renaming digits
-            - CLI_COMMAND_SIMULATION: Questions about simulating CLI command outputs
             - HTTPIE_REQUEST: Specific httpie request to httpbin.org
             - NPX_PRETTIER_SHA256: Tasks involving npx, prettier, and SHA256 hash
             - GOOGLE_SHEETS_FORMULA: Tasks involving Google Sheets specific formulas
@@ -70,7 +72,7 @@ class IntelligentAssignmentRouter:
             - SQL_SALES_CALCULATION: Tasks involving SQL database analysis and sales calculation
             - MARKDOWN_DOCUMENTATION: Tasks involving creating structured Markdown documentation
             - IMAGE_COMPRESSION: Tasks involving lossless image compression
-              - DOCKER_IMAGE_PUSH: Tasks involving creating, tagging, and pushing Docker images
+            - DOCKER_IMAGE_PUSH: Tasks involving creating, tagging, and pushing Docker images
             """
             
             # Generate classification
