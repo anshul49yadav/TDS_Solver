@@ -59,7 +59,7 @@ async def process_assignment(
 
     try:
         # Create temp directory if it doesn't exist
-        temp_dir = 'tmp'
+        temp_dir = '/tmp'
         os.makedirs(temp_dir, exist_ok=True)
         
         # Save file temporarily if provided
