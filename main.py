@@ -1,180 +1,115 @@
 import os
+import logging
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
-import zipfile
-
-from fastapi import FastAPI, Form, File, UploadFile, HTTPException
 from dotenv import load_dotenv
-import google.generativeai as genai
+import uvicorn
 
 # Load environment variables
 load_dotenv()
 
-# Configure Gemini API
-genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
+# Import the intelligent routing logic
+from intelligent_assignment_router import process_assignment_question
 
-app = FastAPI()
+# Configure logging
+def setup_logging():
+    # Create logs directory if it doesn't exist
+    log_dir = 'logs'
+    os.makedirs(log_dir, exist_ok=True)
 
-async def extract_files_from_zip(zip_path: str):
-    """
-    Extract files from a zip archive for serverless environment.
-    
-    Args:
-        zip_path (str): Path to the zip file
-    
-    Returns:
-        List of tuples containing filename and file content
-    """
-    try:
-        extracted_files = []
-        # Ensure /tmp directory exists and is writable
-        os.makedirs('/tmp/extracted', exist_ok=True)
-        
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall("/tmp/extracted")
-            
-            for file_name in zip_ref.namelist():
-                # Skip directories and hidden files
-                if not file_name.startswith('.') and not file_name.endswith('/'):
-                    file_path = f"/tmp/extracted/{file_name}"
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            content = f.read()
-                            extracted_files.append((file_name, content))
-                    except UnicodeDecodeError:
-                        # Handle potential binary or non-UTF-8 files
-                        continue
-        
-        return extracted_files
-    except Exception as e:
-        print(f"Error extracting files from zip: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid zip file: {str(e)}")
+    # Configure logging to write to both console and file
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            # Log to console
+            logging.StreamHandler(),
+            # Log to file
+            logging.FileHandler(os.path.join(log_dir, 'assignment_processor.log'), encoding='utf-8')
+        ]
+    )
 
-async def save_upload_file_temporarily(upload_file: UploadFile):
-    """
-    Save uploaded file to /tmp directory.
-    
-    Args:
-        upload_file (UploadFile): Uploaded file
-    
-    Returns:
-        str: Path to the saved file
-    """
-    try:
-        # Ensure /tmp directory exists
-        os.makedirs('/tmp', exist_ok=True)
-        
-        # Generate a unique filename
-        temp_file_path = f"/tmp/{upload_file.filename}"
-        
-        with open(temp_file_path, "wb") as buffer:
-            buffer.write(await upload_file.read())
-        
-        return temp_file_path
-    except Exception as e:
-        print(f"Error saving file: {e}")
-        raise HTTPException(status_code=500, detail="File could not be saved.")
+# Create logger
+logger = logging.getLogger(__name__)
 
-async def get_gemini_response(prompt: str, file_path: Optional[str] = None) -> str:
-    """
-    Generate response from Gemini with context handling.
-    
-    Args:
-        prompt (str): User's question
-        file_path (Optional[str]): Path to uploaded zip file
-    
-    Returns:
-        str: Generated response
-    """
-    try:
-        # Use the latest Gemini Pro model
-        model = genai.GenerativeModel("gemini-1.5-pro-latest")
-        
-        # Construct context-aware prompt
-        if file_path:
-            extracted_files = await extract_files_from_zip(file_path)
-            
-            # Construct a more structured context
-            context = "Context Files:\n" + "\n".join([
-                f"File: {name}\n---\n{content[:1000]}..." 
-                for name, content in extracted_files
-            ])
-            
-            full_prompt = f"""
-            Task: Carefully analyze the provided context and answer the question precisely.
+# Setup logging
+setup_logging()
 
-            Question: {prompt}
+app = FastAPI(title="Intelligent Assignment Question Processor")
 
-            {context}
-
-            Instructions:
-            - Provide a clear, concise answer
-            - Reference specific files or contexts if relevant
-            - If the context doesn't contain enough information, state that clearly
-            """
-        else:
-            full_prompt = prompt
-        
-        # Generate response with safety settings
-        generation_config = genai.types.GenerationConfig(
-            temperature=0.2,  # More focused response
-            max_output_tokens=2048  # Limit response length
-        )
-        
-        response = model.generate_content(
-            full_prompt, 
-            generation_config=generation_config
-        )
-        
-        return response.text.strip()
-    
-    except Exception as e:
-        print(f"Gemini response generation error: {e}")
-        raise HTTPException(status_code=500, detail="Error processing request")
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/api/")
-async def process_question(
+async def process_assignment(
     question: str = Form(...),
     file: Optional[UploadFile] = File(None)
 ):
-    """
-    Process user question with optional file upload.
-    
-    Args:
-        question (str): User's question
-        file (Optional[UploadFile]): Uploaded zip file
-    
-    Returns:
-        dict: Response from Gemini
-    """
+    # Log the incoming request details
+    logger.info(f"Received assignment processing request")
+    logger.info(f"Question length: {len(question)} characters")
+    logger.info(f"File provided: {file.filename if file else 'No file'}")
+
     try:
-        # Validate inputs
-        if not question:
-            raise HTTPException(status_code=400, detail="Question is required")
+        # Create temp directory if it doesn't exist
+        temp_dir = 'tmp'
+        os.makedirs(temp_dir, exist_ok=True)
         
+        # Save file temporarily if provided
         temp_file_path = None
         if file:
-            # Save file to /tmp
-            temp_file_path = await save_upload_file_temporarily(file)
+            file_extension = os.path.splitext(file.filename)[1]
+            temp_file_path = os.path.join(temp_dir, f"temp_{os.urandom(8).hex()}{file_extension}")
+            
+            # Save file and log file details
+            logger.info(f"Saving temporary file: {temp_file_path}")
+            with open(temp_file_path, 'wb') as buffer:
+                file_content = await file.read()
+                buffer.write(file_content)
+                logger.info(f"Temporary file saved. Size: {len(file_content)} bytes")
         
-        answer = await get_gemini_response(question, temp_file_path)
+        # Process the assignment question using intelligent routing
+        logger.info("Starting assignment question processing")
+        result = process_assignment_question(
+            question=question, 
+            file_path=temp_file_path
+        )
+        logger.info("Assignment question processing completed successfully")
         
-        # Clean up temporary file if it exists
+        # Clean up temporary file
         if temp_file_path and os.path.exists(temp_file_path):
+            logger.info(f"Removing temporary file: {temp_file_path}")
             os.unlink(temp_file_path)
         
-        # Clean up extracted files directory
-        if os.path.exists("/tmp/extracted"):
-            import shutil
-            shutil.rmtree("/tmp/extracted", ignore_errors=True)
-        
-        return {"answer": answer}
+        return result
     
-    except HTTPException as http_err:
-        raise http_err
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        # Log the exception with full details
+        logger.error(f"Error processing assignment: {str(e)}", exc_info=True)
+        
+        # Clean up temporary file if it exists
+        if temp_file_path and os.path.exists(temp_file_path): 
+            logger.info(f"Removing temporary file due to error: {temp_file_path}")
+            os.unlink(temp_file_path)
+        
+        # Raise HTTP exception with error details
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add startup and shutdown event logging
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Application starting up")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Application shutting down")
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
